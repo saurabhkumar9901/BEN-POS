@@ -79,6 +79,7 @@ def sync_motherduck(out_root: str, database: str = "benpos",
             if not _exists(con, tbl):
                 counts[tbl] = "skipped (absent locally)"
                 continue
+            print(f"syncing {tbl} ...", flush=True)
             con.execute(f"CREATE OR REPLACE TABLE md.main.{tbl} AS SELECT * FROM {tbl}")
             counts[tbl] = con.execute(f"SELECT COUNT(*) FROM md.main.{tbl}").fetchone()[0]
         for name, sql in MD_VIEWS.items():
