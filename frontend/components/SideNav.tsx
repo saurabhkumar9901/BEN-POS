@@ -21,13 +21,14 @@ const NAV = [
   { href: "/ingestion", label: "Ingestion", icon: ShieldAlert, active: "bg-ink text-lime border-lime" },
 ];
 
-export function SideNav() {
+export function SideNav({ showIngestion = true }: { showIngestion?: boolean }) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
+  const items = showIngestion ? NAV : NAV.filter((n) => n.href !== "/ingestion");
   return (
     <nav aria-label="Primary navigation" className="grid gap-[5px]">
-      {NAV.map(({ href, label, icon: Icon, active }) => (
+      {items.map(({ href, label, icon: Icon, active }) => (
         <Link
           key={href}
           href={href}

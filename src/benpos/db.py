@@ -114,10 +114,12 @@ def connect(out_root: str, *, wait: int = 0):
 
 
 def build_db(out_root: str, ca_path: str | None = None,
-             company_map: str | None = None, wait: int = 0) -> str:
+             company_map: str | None = None, wait: int = 0,
+             motherduck: str | None = None) -> str:
     """(Re)create views + refresh company_stats (+ CA tables when --ca given).
 
     wait>0: retry the writer lock instead of dying (see connect()).
+    motherduck=<db>: after the local build, dual-write query tables to md.
     """
     import duckdb  # noqa: F401  (ensures dependency present)
 
@@ -258,6 +260,10 @@ def build_db(out_root: str, ca_path: str | None = None,
             )
     finally:
         con.close()
+    if motherduck:
+        from .sync import sync_motherduck as _sync_md
+
+        _sync_md(out_root, database=motherduck)
     return str(Path(out_root) / DB_NAME)
 
 

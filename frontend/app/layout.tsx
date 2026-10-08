@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </span>
             </Link>
             <Suspense>
-              <SideNav />
+              <SideNav showIngestion={(process.env.DATA_SOURCE ?? "local") !== "motherduck"} />
             </Suspense>
             <div className="my-[26px] h-px bg-[#343630]" />
             <span className="mx-3 mb-3 font-mono text-[9px] font-bold tracking-[0.18em] text-[#777a71]">

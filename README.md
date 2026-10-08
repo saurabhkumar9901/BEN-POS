@@ -95,8 +95,11 @@ browser → Vercel ──reads──▶ md:benpos
 ```
 
 1. **MotherDuck**: create account + database `benpos`, make a token.
-   Bootstrap once from the laptop:
-   `python -m benpos sync-md --output processed` (needs `MOTHERDUCK_TOKEN`).
+   Dual-write on every local rebuild (tables share the local view names,
+   so frontend SQL is portable):
+   `python -m benpos build-db --output processed --ca <file> --company-map company_map.csv --motherduck`
+   (needs `MOTHERDUCK_TOKEN`; standalone re-sync anytime via
+   `python -m benpos sync-md --output processed`).
 2. **R2**: bucket + API token (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
    `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`).
 3. **Render**: Blueprint deploy from `render.yaml` (Docker, free tier),

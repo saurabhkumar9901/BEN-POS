@@ -37,7 +37,7 @@ def cmd_process(args: argparse.Namespace) -> None:
 
 def cmd_build_db(args: argparse.Namespace) -> None:
     path = build_db(args.output, ca_path=args.ca, company_map=args.company_map,
-                    wait=args.wait)
+                    wait=args.wait, motherduck=args.motherduck)
     print(f"built {path}")
 
 
@@ -72,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="CSV with isin,company_name[,security_code] for CA code->ISIN link")
     pb.add_argument("--wait", type=int, default=0,
                     help="seconds to keep retrying the writer lock (e.g. 120)")
+    pb.add_argument("--motherduck", nargs="?", const="benpos", default=None,
+                    help="dual-write query tables to MotherDuck db (needs MOTHERDUCK_TOKEN)")
     pb.set_defaults(func=cmd_build_db)
     ps = sub.add_parser("stats", help="print a company snapshot + top holders")
     ps.add_argument("--output", required=True)

@@ -6,7 +6,8 @@ import { viewStatements } from "./views";
 //   local      :memory: + views over Parquet/CSV files (offline dev, current default)
 //   motherduck :memory: + ATTACH md: (Vercel + MotherDuck free tier)
 // Set DATA_SOURCE=motherduck plus MOTHERDUCK_TOKEN (+ MD_DATABASE) to switch.
-// The frontend never opens benpos.duckdb in either mode.
+// The token is server-only (never NEXT_PUBLIC_). Local benpos.duckdb is only
+// ever touched by the Python pipeline, so rebuilds can't collide with browsing.
 
 // Connection pool: a few warm in-memory instances shared across requests.
 // Pool size is small and fixed; idle instances are evicted on a timer.
@@ -31,6 +32,8 @@ async function createPooled(): Promise<Pooled> {
       const token = process.env.MOTHERDUCK_TOKEN;
       if (!token) throw new Error("MOTHERDUCK_TOKEN env is required for DATA_SOURCE=motherduck");
       const db = process.env.MD_DATABASE ?? "benpos";
+      // Serverless homes aren't writable; keep downloaded extensions in /tmp.
+      await con.run("SET extension_directory TO '/tmp/duckdb_extensions'");
       await con.run("INSTALL motherduck");
       await con.run("LOAD motherduck");
       await con.run(`SET motherduck_token='${token.replace(/'/g, "''")}'`);
@@ -139,8 +142,9 @@ function toJsonSafe(value: unknown): unknown {
 
 export async function query<T = Record<string, unknown>>(
   sql: string,
-  // Long default is safe: every successful build-db busts the generation,
-  // and the frontend never writes. Per-call ttlMs overrides for hot paths.
+  // Long default is safe: the frontend never writes, and local ingest busts
+  // the generation on every successful build-db. (Cross-process readers,
+  // e.g. Vercel + MotherDuck, rely on TTL alone.) Per-call ttlMs overrides.
   ttlMs = 300_000
 ): Promise<T[]> {
   return cached<T[]>(`q:${sql}`, ttlMs, async () => {
