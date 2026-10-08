@@ -54,7 +54,8 @@ def cmd_stats(args: argparse.Namespace) -> None:
 def cmd_sync_md(args: argparse.Namespace) -> None:
     from .sync import sync_motherduck
 
-    counts = sync_motherduck(args.output, database=args.database, token=args.token)
+    counts = sync_motherduck(args.output, database=args.database, token=args.token,
+                             verbose=args.verbose, log_file=args.log_file)
     for tbl, n in counts.items():
         print(f"{tbl}: {n}")
 
@@ -85,6 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
     pm.add_argument("--output", required=True, help="Processed root (holds Parquet + .duckdb)")
     pm.add_argument("--database", default="benpos", help="MotherDuck database name")
     pm.add_argument("--token", default=None, help="MotherDuck token (else MOTHERDUCK_TOKEN env)")
+    pm.add_argument("--verbose", action="store_true", help="debug detail (attach target, views)")
+    pm.add_argument("--log-file", nargs="?", const="", default=None,
+                    help="tee output to a file (default: processed/sync_<utc>.log)")
     pm.set_defaults(func=cmd_sync_md)
     # backward compat: bare `python -m benpos --input ...` == process
     _add_process_args(p, required=False)
