@@ -82,16 +82,17 @@ full address, pledged/free/bucket split, source file + row). States normalized i
 ## Deploy (free tier)
 
 `Vercel (UI + API)` → `MotherDuck (hosted DuckDB)` · ingest via
-`Render free FastAPI worker` fed by `R2` staging. No PC, no schedule needed
+`GitHub Actions` fed by `Supabase` staging. No PC, no schedule needed
 (cron optional later).
 
 ```
 browser → Vercel ──reads──▶ md:benpos
-  │ uploads .txt/.csv ──PUT──▶ R2 ──keys──▶ [Ingest now]
-  │                                              │ POST /ingest
-  │                                              ▼
-  │                                     Render worker: R2 → process →
-  │                                     build-db → sync-md → md:benpos
+  │ uploads .txt/.csv ──PUT──▶ Supabase ──keys──▶ [Ingest now]
+  │                                                  │ workflow_dispatch
+  │                                                  ▼
+  │                                         Actions worker: Supabase → process →
+  │                                         build-db --motherduck → md:benpos
+  │                                         (+ deletes staged keys: 1 GB discipline)
 ```
 
 1. **MotherDuck**: create account + database `benpos`, make a token.
@@ -100,19 +101,24 @@ browser → Vercel ──reads──▶ md:benpos
    `python -m benpos build-db --output processed --ca <file> --company-map company_map.csv --motherduck`
    (needs `MOTHERDUCK_TOKEN`; standalone re-sync anytime via
    `python -m benpos sync-md --output processed`).
-2. **R2**: bucket + API token (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-   `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`).
-3. **Render**: Blueprint deploy from `render.yaml` (Docker, free tier),
-   set `R2_*`, `MOTHERDUCK_TOKEN`, `MD_DATABASE=benpos` env vars.
+2. **Supabase**: project → Storage → private bucket `benpos-drops` →
+   service_role key + S3 access keys. Staging is transient: the worker
+   deletes keys after a successful sync (1 GB free cap fits one drop).
+3. **GitHub**: repo Settings → Secrets → Actions:
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`,
+   `SUPABASE_S3_ENDPOINT`, `SUPABASE_S3_KEY_ID`, `SUPABASE_S3_SECRET`,
+   `SUPABASE_S3_REGION`, `MOTHERDUCK_TOKEN`, `MD_DATABASE=benpos`.
+   PAT (`repo` + `workflow` scopes) → `GH_TOKEN` for Vercel below.
 4. **Vercel**: import `frontend/`, set `DATA_SOURCE=motherduck`,
-   `MOTHERDUCK_TOKEN`, `MD_DATABASE=benpos`, `R2_*` (uploads),
-   `NEXT_PUBLIC_INGEST_BACKEND=render`, `RENDER_INGEST_URL=<render url>`.
+   `MOTHERDUCK_TOKEN`, `MD_DATABASE=benpos`,
+   `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_BUCKET` (uploads),
+   `NEXT_PUBLIC_INGEST_BACKEND=render`, `GH_TOKEN`, `GH_REPO=saurabhkumar9901/BEN-POS`.
 5. Local dev stays offline: unset `DATA_SOURCE` (reads local
    `processed/`) and `NEXT_PUBLIC_INGEST_BACKEND` (local spawn ingest).
 
-Secrets map: `MOTHERDUCK_TOKEN` (Vercel server + laptop + Render),
-`MD_DATABASE` (both), `R2_*` (Vercel server + Render),
-`RENDER_INGEST_URL` (Vercel server only).
+Secrets map: `MOTHERDUCK_TOKEN` (Vercel server + laptop + Actions),
+`MD_DATABASE` (all three), Supabase keys (Vercel server + Actions),
+`GH_TOKEN`/`GH_REPO` (Vercel server only).
 
 ## Design decisions (grilled)
 

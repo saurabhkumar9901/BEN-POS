@@ -1,0 +1,48 @@
+name: ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      keys:
+        description: "Newline-separated Supabase keys of BENPOS .txt drops"
+        required: true
+        type: string
+      ca_key:
+        description: "Supabase key of the CA .csv (optional)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ingest to MotherDuck
+        env:
+          BENPOS_KEYS: ${{ inputs.keys }}
+          CA_KEY: ${{ inputs.ca_key }}
+          S3_ENDPOINT_URL: ${{ secrets.SUPABASE_S3_ENDPOINT }}
+          S3_KEY_ID: ${{ secrets.SUPABASE_S3_KEY_ID }}
+          S3_SECRET: ${{ secrets.SUPABASE_S3_SECRET }}
+          S3_REGION: ${{ secrets.SUPABASE_S3_REGION }}
+          S3_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+          MD_DATABASE: ${{ secrets.MD_DATABASE }}
+        run: python .github/scripts/cloud_ingest.py 2>&1 | tee work-ingest.log
+
+      - name: Upload log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingest-log
+          path: work-ingest.log
