@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets / local env
+.env
+.env.*
+
+# Raw + derived data (never commit: ~800MB, rebuildable via pipeline)
+data/
+processed/
+*.duckdb
+*.duckdb.wal
+
+# Job logs
+_ingest_*.log
+_ingest_*.json
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temp probes
+probe.cjs
+check_*.py
+admintest.py
+locktest.py
+holdlock.py
+findkey.py
