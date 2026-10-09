@@ -112,6 +112,11 @@ export function viewStatements(): string[] {
       `CREATE OR REPLACE VIEW company_stats AS SELECT * FROM read_csv('${root}/company_stats.csv', header = true)`
     );
   }
+  if (has("overview_stats.csv")) {
+    stmts.push(
+      `CREATE OR REPLACE VIEW overview_stats AS SELECT * FROM read_csv('${root}/overview_stats.csv', header = true)`
+    );
+  }
   if (has("_manifest.csv")) {
     stmts.push(
       `CREATE OR REPLACE VIEW manifest AS SELECT * FROM read_csv('${root}/_manifest.csv', header = true)`

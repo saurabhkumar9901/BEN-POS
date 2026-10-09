@@ -258,6 +258,37 @@ export type OverviewTotals = {
 };
 
 export async function overviewTotals(): Promise<OverviewTotals> {
+  // Single precomputed row (built by build-db). Falls back to live scans
+  // only when the table predates the overview_stats feature.
+  try {
+    const rows = await query<{
+      positions: number;
+      identities: number;
+      cross_company: number;
+      full_breadth: number;
+      n_companies: number;
+      files_reconciled: number;
+      latest_date: string;
+      cdsl_positions: number;
+      nsdl_positions: number;
+    }>("SELECT * FROM overview_stats LIMIT 1");
+    if (rows.length) {
+      const r = rows[0];
+      return {
+        positions: Number(r.positions),
+        identities: Number(r.identities),
+        crossCompany: Number(r.cross_company),
+        fullBreadth: Number(r.full_breadth),
+        nCompanies: Number(r.n_companies),
+        filesReconciled: Number(r.files_reconciled),
+        latestDate: String(r.latest_date),
+        cdslPositions: Number(r.cdsl_positions),
+        nsdlPositions: Number(r.nsdl_positions),
+      };
+    }
+  } catch {
+    /* fall through to live computation */
+  }
   const [pos, ident, cross, full, comp, files, mix] = await Promise.all([
     query<{ n: number }>("SELECT COUNT(*) AS n FROM holdings_display"),
     query<{ n: number }>("SELECT COUNT(DISTINCT investor_key) AS n FROM holdings_display"),

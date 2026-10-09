@@ -251,6 +251,24 @@ def build_db(out_root: str, ca_path: str | None = None,
         con.execute(
             f"COPY (SELECT * FROM company_stats) TO '{abs_root}/company_stats.csv' (HEADER)"
         )
+        con.execute(
+            "CREATE OR REPLACE TABLE overview_stats AS "
+            "SELECT (SELECT COUNT(*) FROM holdings_display) AS positions, "
+            "(SELECT COUNT(DISTINCT investor_key) FROM holdings_display) AS identities, "
+            "(SELECT COUNT(*) FROM (SELECT investor_key FROM holdings_display "
+            "GROUP BY investor_key HAVING COUNT(DISTINCT isin) >= 2)) AS cross_company, "
+            "(SELECT COUNT(*) FROM (SELECT investor_key, COUNT(DISTINCT isin) AS c "
+            "FROM holdings_display GROUP BY investor_key) "
+            "WHERE c = (SELECT COUNT(DISTINCT isin) FROM holdings_display)) AS full_breadth, "
+            "(SELECT COUNT(DISTINCT isin) FROM holdings_display) AS n_companies, "
+            "(SELECT COUNT(*) FROM manifest) AS files_reconciled, "
+            "(SELECT MAX(benpos_date) FROM holdings_display) AS latest_date, "
+            "(SELECT SUM(cdsl_holders) FROM company_stats) AS cdsl_positions, "
+            "(SELECT SUM(nsdl_holders) FROM company_stats) AS nsdl_positions"
+        )
+        con.execute(
+            f"COPY (SELECT * FROM overview_stats) TO '{abs_root}/overview_stats.csv' (HEADER)"
+        )
         if ca_path:
             con.execute(
                 f"COPY (SELECT * FROM ca_events) TO '{abs_root}/ca_events.csv' (HEADER)"

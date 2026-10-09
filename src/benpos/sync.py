@@ -25,6 +25,7 @@ MD_TABLES = [
     "holdings_display",
     "position_detail",
     "company_stats",
+    "overview_stats",
     "file_validation",
     "manifest",
     "ca_events",
