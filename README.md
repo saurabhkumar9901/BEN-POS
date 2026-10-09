@@ -102,7 +102,9 @@ browser → Vercel ──reads──▶ md:benpos
    (needs `MOTHERDUCK_TOKEN`; standalone re-sync anytime via
    `python -m benpos sync-md --output processed`).
 2. **Supabase**: project → Storage → private bucket `benpos-drops` →
-   service_role key + S3 access keys. Staging is transient: the worker
+   service_role key + S3 access keys. Wire format is gzipped
+   (`<name>.gz`, ~4× smaller — required: free caps objects at 50 MB);
+   the worker gunzips after download. Staging is transient: the worker
    deletes keys after a successful sync (1 GB free cap fits one drop).
 3. **GitHub**: repo Settings → Secrets → Actions:
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BUCKET`,

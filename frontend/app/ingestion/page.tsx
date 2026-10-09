@@ -111,17 +111,27 @@ export default function IngestionPage() {
     if (!picked || !picked.length) return;
     setBusy(true);
     try {
+      // Supabase free caps objects at 50 MB: gzip on the wire (<name>.gz),
+      // worker gunzips after download. Local path stays raw (no cap there).
+      const gzOf = async (f: File): Promise<Blob> => {
+        const stream = f.stream().pipeThrough(new CompressionStream("gzip"));
+        return await new Response(stream).blob();
+      };
       const r = await fetch("/api/ingestion/uploads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: Array.from(picked).map((f) => f.name) }),
+        body: JSON.stringify({ files: Array.from(picked).map((f) => `${f.name}.gz`) }),
       });
       if (!r.ok) throw new Error("presign failed");
       const { uploads } = await r.json();
       const keys: string[] = [];
       await Promise.all(
         uploads.map(async (u: { name: string; key: string; url: string }, i: number) => {
-          const put = await fetch(u.url, { method: "PUT", body: picked[i] });
+          const put = await fetch(u.url, {
+            method: "PUT",
+            headers: { "Content-Type": "application/gzip" },
+            body: await gzOf(picked[i]),
+          });
           if (!put.ok) throw new Error(`upload failed: ${u.name}`);
           keys.push(u.key);
         })
@@ -153,8 +163,10 @@ export default function IngestionPage() {
   }
 
   async function runRemote() {
-    const txt = remoteKeys.filter((k) => k.toLowerCase().endsWith(".txt"));
-    const csv = remoteKeys.filter((k) => k.toLowerCase().endsWith(".csv"));
+    const isTxt = (k: string) => /\.txt(\.gz)?$/i.test(k);
+    const isCsv = (k: string) => /\.csv(\.gz)?$/i.test(k);
+    const txt = remoteKeys.filter(isTxt);
+    const csv = remoteKeys.filter(isCsv);
     if (!txt.length) {
       setLog((prev) => `${prev}\nUpload at least one BENPOS .txt first.`);
       return;

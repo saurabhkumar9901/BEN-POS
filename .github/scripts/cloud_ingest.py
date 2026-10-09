@@ -14,8 +14,10 @@ Env:
 """
 from __future__ import annotations
 
+import gzip
 import logging
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -56,15 +58,28 @@ def main() -> int:
 
     client = s3_client()
     t0 = time.perf_counter()
+
+    def fetch(key: str, dest: Path) -> Path:
+        log.info("downloading s3://%s/%s -> %s", bucket, key, dest)
+        client.download_file(bucket, key, str(dest))
+        if dest.suffix == ".gz":
+            # Browser gzips uploads (Supabase free caps objects at 50 MB).
+            out = dest.with_suffix("")
+            with gzip.open(dest, "rb") as f_in, open(out, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            dest.unlink()
+            return out
+        return dest
+
+    def plain_name(key: str) -> str:
+        name = Path(key).name
+        return name[:-3] if name.endswith(".gz") else name
+
     for k in keys:
-        dest = data / Path(k).name
-        log.info("downloading s3://%s/%s -> %s", bucket, k, dest)
-        client.download_file(bucket, k, str(dest))
+        fetch(k, data / plain_name(k))
     ca_path = None
     if ca_key:
-        ca_path = work / "ca.csv"
-        log.info("downloading s3://%s/%s -> %s", bucket, ca_key, ca_path)
-        client.download_file(bucket, ca_key, str(ca_path))
+        ca_path = fetch(ca_key, work / plain_name(ca_key))
 
     cmap = os.environ.get("COMPANY_MAP", "company_map.csv")
     log.info("processing %d files", len(keys))
