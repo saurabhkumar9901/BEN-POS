@@ -27,8 +27,17 @@
    region **Central India** → Review + Create.
 5. Search **Storage accounts** → **+ Create** → resource group `benpos-rg`,
    name like `benposstore12345` (globally unique, lowercase), region
-   Central India, **Standard / LRS** (cheapest) → Review + Create →
-   wait for deployment → **Go to resource**.
+   Central India. Then, field by field:
+   - **Primary service**: pick the option containing **Azure Files**
+     (a Blob-only choice risks an account without Files support — and the
+     Container App mounts your data as an SMB file share).
+   - **Primary workload**: **General purpose** (skip HPC/SAP presets).
+   - **Performance**: **Standard** (Premium SSDs cost multiples more for
+     latency DuckDB doesn't need at this data size).
+   - **Redundancy**: **LRS**, not GRS (geo-replication doubles cost to
+     protect bytes that are rebuildable from the pipeline + MotherDuck copy).
+   - Leave the checkboxes + Advanced/Networking tabs on defaults.
+   Review + Create → wait for deployment → **Go to resource**.
 6. Left menu → **Data storage → File shares** → **+ File share** →
    name `benpos-data`, tier **Transaction optimized** → Create.
 7. Left menu → **Security + networking → Access keys** → **Show** next to
@@ -48,7 +57,10 @@
     name `benpos-desk`, region Central India, environment `benpos-env`.
 12. **Container** tab → uncheck the sample image → **Add/edit image**:
     - Image source: **a public or private registry** (Docker Hub and others)
-    - Registry: `ghcr.io`, image `saurabhkumar9901/ben-pos`, tag `latest`
+    - **Registry login server**: `ghcr.io` (do not leave the default — it
+      produces a broken `docker.io/ghcr.io/...` reference and pull fails
+      with `UNAUTHORIZED`)
+    - Image: `saurabhkumar9901/ben-pos` (all lowercase), tag `latest`
     - CPU **2**, Memory **4 Gi**.
 13. **Volume bindings** tab → **Add volume** →
     - Type: **Azure Files**, name `benpos-data`
@@ -56,15 +68,19 @@
       paste the access key, access mode **ReadWrite**
     - Back in the container section → **Volume mounts** → Add →
       volume `benpos-data`, mount path `/mnt/share`.
-14. **Ingress** tab → enable **External ingress**, target port **3000**,
-    leave the rest default.
+14. **Ingress** tab → enable **External ingress** and confirm:
+    traffic **from anywhere**, type **HTTP**, Transport **Auto**,
+    insecure connections **off**, target port **3000**. (Port 3000 must
+    match the container — a wrong port is the classic "deploys but URL
+    hangs" failure. Leave session affinity off: single replica.)
 15. **Scale** tab (after creation: left menu → **Scale**) → min replicas **0**,
     max replicas **1**. (One replica only: DuckDB takes a single writer lock.
     Zero minimum means ~₹0 idle with a few seconds cold start.)
 16. Review + Create → wait → open the **Application Url** from the Overview page.
-17. First visit shows an empty desk (no data yet — expected). Go to
-    `/ingestion`, upload your BENPOS `.txt` files (+ CA csv), **Process
-    files**, then **Rebuild DB**. Everything persists on the file share.
+17. First visit shows an orange **No data ingested yet** banner (not an
+    error) — the share starts empty by design. Go to `/ingestion`, upload
+    your BENPOS `.txt` files (+ CA csv), **Process files**, then
+    **Rebuild DB**. Everything persists on the file share.
 
 ## 5. Updates (30 seconds, forever after)
 
@@ -88,4 +104,5 @@
 | Actions `image` workflow red | Actions tab → failed run → logs (usually a transient npm/Debian mirror hiccup — Re-run jobs) |
 | Container shows crash-looping | Log stream → look for `libduckdb` or port errors |
 | App loads but no data | Expected until first `/ingestion` run (fresh share is empty) |
-| GHCR pull denied | Package visibility must be **Public** (step 3) |
+| GHCR pull denied / `docker.io/ghcr.io/...` in error | Registry login server must be `ghcr.io` (not default) + image lowercase; package visibility **Public** (step 3) unless you add registry credentials |
+| Revision fails to provision | Check the error text: image ref / credentials (above), or port mismatch (must be 3000) |
