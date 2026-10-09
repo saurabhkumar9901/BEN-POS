@@ -18,7 +18,22 @@ function has(rel: string): boolean {
   }
 }
 
-function globExists(pattern: "uni" | "safe" | "full-nsdl" | "full-cdsl"): boolean {
+type Probe = { uni: boolean; safe: boolean; fullNsdl: boolean; fullCdsl: boolean };
+let probeCache: Probe | null = null;
+let stmtsCache: string[] | null = null;
+
+/** Bust the memoized filesystem probe (called on successful build-db). */
+export function bustViewCache(): void {
+  probeCache = null;
+  stmtsCache = null;
+}
+
+// Single directory walk for all parquet kinds. Previously globExists() walked
+// the whole processed tree up to 6x per pooled connection creation
+// (up to 24 walks on a cold 4-slot boot). Now: 1 walk, memoized.
+function probe(): Probe {
+  if (probeCache) return probeCache;
+  const out: Probe = { uni: false, safe: false, fullNsdl: false, fullCdsl: false };
   const root = path.join(process.cwd(), "..", "processed");
   try {
     for (const dateDir of fs.readdirSync(root, { withFileTypes: true })) {
@@ -27,34 +42,36 @@ function globExists(pattern: "uni" | "safe" | "full-nsdl" | "full-cdsl"): boolea
       for (const isinDir of fs.readdirSync(d, { withFileTypes: true })) {
         if (!isinDir.isDirectory() || !isinDir.name.startsWith("isin=")) continue;
         const files = fs.readdirSync(path.join(d, isinDir.name));
-        const want =
-          pattern === "uni"
-            ? (f: string) => f.endsWith("_unified.parquet") && !f.endsWith("_unified_safe.parquet")
-            : pattern === "safe"
-              ? (f: string) => f.endsWith("_unified_safe.parquet")
-              : pattern === "full-nsdl"
-                ? (f: string) => f === "depository=nsdl_full.parquet"
-                : (f: string) => f === "depository=cdsl_full.parquet";
-        if (files.some(want)) return true;
+        for (const f of files) {
+          if (f === "depository=nsdl_full.parquet") out.fullNsdl = true;
+          else if (f === "depository=cdsl_full.parquet") out.fullCdsl = true;
+          else if (f.endsWith("_unified_safe.parquet")) out.safe = true;
+          else if (f.endsWith("_unified.parquet")) out.uni = true;
+        }
+        if (out.uni && out.safe && out.fullNsdl && out.fullCdsl) break;
       }
+      if (out.uni && out.safe && out.fullNsdl && out.fullCdsl) break;
     }
   } catch {
     /* no processed tree yet */
   }
-  return false;
+  probeCache = out;
+  return out;
 }
 
 /** Ordered DDL statements to run on every fresh in-memory instance. */
 export function viewStatements(): string[] {
+  if (stmtsCache) return stmtsCache;
   const root = processedRoot();
   const uni = `${root}/benpos_date=*/isin=*/depository=*_unified.parquet`;
   const safe = `${root}/benpos_date=*/isin=*/depository=*_unified_safe.parquet`;
   const fullNsdl = `${root}/benpos_date=*/isin=*/depository=nsdl_full.parquet`;
   const fullCdsl = `${root}/benpos_date=*/isin=*/depository=cdsl_full.parquet`;
+  const p = probe();
   const stmts: string[] = [
     `CREATE OR REPLACE VIEW holdings AS SELECT * FROM read_parquet('${uni}', hive_partitioning = false)`,
   ];
-  if (globExists("safe")) {
+  if (p.safe) {
     stmts.push(
       `CREATE OR REPLACE VIEW holdings_safe AS SELECT * FROM read_parquet('${safe}', hive_partitioning = false)`,
       "CREATE OR REPLACE VIEW holdings_display AS " +
@@ -67,17 +84,17 @@ export function viewStatements(): string[] {
         "FROM holdings_safe s JOIN holdings h USING (source_file, source_row)"
     );
   }
-  if (globExists("full-nsdl")) {
+  if (p.fullNsdl) {
     stmts.push(
       `CREATE OR REPLACE VIEW holdings_full_nsdl AS SELECT * FROM read_parquet('${fullNsdl}', hive_partitioning = false)`
     );
   }
-  if (globExists("full-cdsl")) {
+  if (p.fullCdsl) {
     stmts.push(
       `CREATE OR REPLACE VIEW holdings_full_cdsl AS SELECT * FROM read_parquet('${fullCdsl}', hive_partitioning = false)`
     );
   }
-  if (globExists("safe") && globExists("full-nsdl") && globExists("full-cdsl")) {
+  if (p.safe && p.fullNsdl && p.fullCdsl) {
     stmts.push(
       "CREATE OR REPLACE VIEW position_detail AS " +
         "SELECT d.*, " +
@@ -137,5 +154,6 @@ export function viewStatements(): string[] {
       `CREATE OR REPLACE VIEW ca_snapshot_factors AS SELECT * FROM read_csv('${root}/ca_snapshot_factors.csv', header = true)`
     );
   }
+  stmtsCache = stmts;
   return stmts;
 }

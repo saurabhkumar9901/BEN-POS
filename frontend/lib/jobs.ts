@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { bustCache } from "./cache";
+import { bustViewCache } from "./views";
 import path from "node:path";
 
 // Project root = one level above frontend/. Pipeline runs there with
@@ -83,6 +84,7 @@ function attempt(
     if (code === 0) {
       if (step === "builddb") {
         bustCache();
+        bustViewCache();
         append("\nQuery cache busted - fresh reads from here on.\n");
       }
       writeStatus(jobId, { state: "done", exitCode: code, finishedAt: new Date().toISOString() });

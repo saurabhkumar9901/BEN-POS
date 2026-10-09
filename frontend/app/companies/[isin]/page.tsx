@@ -34,12 +34,21 @@ async function CompanyContent({
   const { isin } = await params;
   const sp = await searchParams;
   const dv = sp.date;
-  const hv = sp.hpage;
   const dates = await snapshotDates();
   const date = (Array.isArray(dv) ? dv[0] : dv) ?? dates[0];
   if (!date) return <p className="py-10 text-muted">No snapshots loaded.</p>;
+
+  // Fast CSV lookups paint the shell immediately; the heavy holders
+  // aggregation streams in below via its own Suspense boundary instead of
+  // blocking the whole page (previously one await-all = 11s+ blank RSC).
+  const [stats, quality, factor] = await Promise.all([
+    companyStats(isin, date),
+    companyQuality(isin, date),
+    caFactor(isin, date),
+  ]);
+  if (!stats) return <p className="py-10 text-muted">Unknown ISIN.</p>;
+  const hv = sp.hpage;
   const hpage = Math.max(1, Number(Array.isArray(hv) ? hv[0] : hv ?? "1") || 1);
-  const HPAGE = 25;
   const one = (k: string) => {
     const v = sp[k];
     return Array.isArray(v) ? v[0] : v ?? "";
@@ -48,28 +57,6 @@ async function CompanyContent({
   const hdepo = one("hdepo");
   const hstate = one("hstate");
   const hmin = Math.max(0, Number(one("hmin") || "0") || 0);
-
-  const [stats, quality, factor, holders, hstates] = await Promise.all([
-    companyStats(isin, date),
-    companyQuality(isin, date),
-    caFactor(isin, date),
-    topHolders(isin, date, HPAGE, (hpage - 1) * HPAGE, {
-      q: hq || undefined,
-      depo: hdepo || undefined,
-      minQty: hmin,
-      state: hstate || undefined,
-    }),
-    distinctCompanyStates(isin, date),
-  ]);
-  if (!stats) return <p className="py-10 text-muted">Unknown ISIN.</p>;
-  const hpages = Math.max(1, Math.ceil(Number(holders.total) / HPAGE));
-  const hHref = (p: number) =>
-    `/companies/${isin}?date=${date}&hpage=${p}` +
-    (hq ? `&hq=${encodeURIComponent(hq)}` : "") +
-    (hdepo ? `&hdepo=${hdepo}` : "") +
-    (hstate ? `&hstate=${encodeURIComponent(hstate)}` : "") +
-    (hmin ? `&hmin=${hmin}` : "");
-  const resetHref = `/companies/${isin}?date=${date}`;
 
   const cleanPct =
     quality && Number(quality.rows) > 0
@@ -128,6 +115,72 @@ async function CompanyContent({
         </Card>
       </div>
 
+      <Suspense
+        fallback={
+          <Card>
+            <CardHeader>
+              <CardTitle>Top holders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="py-8 font-mono text-sm text-muted">Scanning 303k positions…</p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <CompanyHolders
+          isin={isin}
+          date={date}
+          totalQty={Number(stats.total_qty)}
+          hpage={hpage}
+          hq={hq}
+          hdepo={hdepo}
+          hstate={hstate}
+          hmin={hmin}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+async function CompanyHolders({
+  isin,
+  date,
+  totalQty,
+  hpage,
+  hq,
+  hdepo,
+  hstate,
+  hmin,
+}: {
+  isin: string;
+  date: string;
+  totalQty: number;
+  hpage: number;
+  hq: string;
+  hdepo: string;
+  hstate: string;
+  hmin: number;
+}) {
+  const HPAGE = 25;
+  const [holders, hstates] = await Promise.all([
+    topHolders(isin, date, HPAGE, (hpage - 1) * HPAGE, {
+      q: hq || undefined,
+      depo: hdepo || undefined,
+      minQty: hmin,
+      state: hstate || undefined,
+    }),
+    distinctCompanyStates(isin, date),
+  ]);
+  const hpages = Math.max(1, Math.ceil(Number(holders.total) / HPAGE));
+  const hHref = (p: number) =>
+    `/companies/${isin}?date=${date}&hpage=${p}` +
+    (hq ? `&hq=${encodeURIComponent(hq)}` : "") +
+    (hdepo ? `&hdepo=${hdepo}` : "") +
+    (hstate ? `&hstate=${encodeURIComponent(hstate)}` : "") +
+    (hmin ? `&hmin=${hmin}` : "");
+  const resetHref = `/companies/${isin}?date=${date}`;
+
+  return (
       <Card>
         <CardHeader>
           <CardTitle>
@@ -231,7 +284,7 @@ async function CompanyContent({
               </td>
               <td className="px-3 py-[11px] text-right font-bold">{fmtInt(h.qty)}</td>
               <td className="px-3 py-[11px] text-right">
-                {fmtPct((Number(h.qty) / Number(stats.total_qty)) * 100)}
+                {fmtPct((Number(h.qty) / totalQty) * 100)}
               </td>
               <td className="px-3 py-[11px] font-mono text-[11px] text-muted">{h.depo}</td>
               <td className="px-3 py-[11px]">
@@ -242,6 +295,5 @@ async function CompanyContent({
           ))}
         </DataTable>
       </Card>
-    </div>
   );
 }

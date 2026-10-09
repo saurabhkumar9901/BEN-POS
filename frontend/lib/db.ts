@@ -10,19 +10,38 @@ import { viewStatements } from "./views";
 // ever touched by the Python pipeline, so rebuilds can't collide with browsing.
 
 // Connection pool: a few warm in-memory instances shared across requests.
-// Pool size is small and fixed; idle instances are evicted on a timer.
+// POOL_MIN instances are never evicted, so the pool stays warm across idle
+// gaps (previously every idle instance was destroyed after ~120s and the
+// next visitor paid a full cold start). Tune with BENPOS_POOL / BENPOS_POOL_MIN.
 const POOL_MAX = Math.max(1, Number(process.env.BENPOS_POOL ?? 4) || 4);
-const POOL_IDLE_TICKS = 12; // 12 x 10s with no checkout before shrinking
+const POOL_MIN = Math.min(
+  POOL_MAX,
+  Math.max(1, Number(process.env.BENPOS_POOL_MIN ?? 2) || 2)
+);
+const POOL_IDLE_TICKS = 12; // 12 x 10s with no checkout before shrinking to POOL_MIN
+const KEEPALIVE_TICKS = 6; // idle protected instance gets SELECT 1 every ~60s
 
 type Pooled = {
   instance: Awaited<ReturnType<typeof DuckDBInstance.create>>;
   con: Awaited<ReturnType<Awaited<ReturnType<typeof DuckDBInstance.create>>["connect"]>>;
   inUse: boolean;
   idleTicks: number;
+  keepaliveTicks: number;
 };
 
-const pool: Pooled[] = [];
-const waiters: { resolve: (p: Pooled) => void; reject: (e: unknown) => void }[] = [];
+type PoolState = {
+  pool: Pooled[];
+  waiters: { resolve: (p: Pooled) => void; reject: (e: unknown) => void }[];
+};
+
+// Survive dev HMR / Turbopack module re-evaluation: otherwise every edit
+// drops all warm instances and the next page load is cold again.
+const g = globalThis as Record<string, unknown>;
+const state: PoolState =
+  (g.__benposPool as PoolState | undefined) ??
+  ((g.__benposPool as PoolState) = { pool: [], waiters: [] });
+const pool = state.pool;
+const waiters = state.waiters;
 
 async function createPooled(): Promise<Pooled> {
   const instance = await DuckDBInstance.create(":memory:");
@@ -57,7 +76,7 @@ async function createPooled(): Promise<Pooled> {
     }
     throw err;
   }
-  return { instance, con, inUse: true, idleTicks: 0 };
+  return { instance, con, inUse: true, idleTicks: 0, keepaliveTicks: 0 };
 }
 
 function destroyPooled(p: Pooled): void {
@@ -94,15 +113,71 @@ function release(p: Pooled): void {
   const next = waiters.shift();
   if (next) {
     p.idleTicks = 0;
+    p.keepaliveTicks = 0;
     next.resolve(p);
     return;
   }
   p.inUse = false;
   p.idleTicks = 0;
+  p.keepaliveTicks = 0;
+}
+
+// Pre-warm POOL_MIN instances sequentially at boot (sequential to avoid a
+// thunder of parallel DuckDB creates), then optionally pre-run the homepage
+// queries so parquet metadata + the heavy leaders aggregation are hot before
+// the first visitor. Fire-and-forget; failures surface on real queries.
+// Disable query warm with BENPOS_WARM_QUERIES=0.
+{
+  if (g.__benposPoolWarm !== true) {
+    g.__benposPoolWarm = true;
+    (async () => {
+      try {
+        for (let i = 0; i < POOL_MIN; i++) {
+          const p = await acquire();
+          release(p);
+        }
+      } catch {
+        /* first real query will retry */
+        return;
+      }
+      if (process.env.BENPOS_WARM_QUERIES === "0") return;
+      try {
+        const q = await import("./queries");
+        await Promise.all([
+          q.snapshotDates().catch(() => []),
+          q.overviewTotals().catch(() => null),
+          q.listCompanies({ sort: "qty", dir: "desc", page: 1, pageSize: 50 }).catch(() => null),
+          // Heaviest homepage query — warms parquet JOIN + aggregation.
+          q.leaders(2, 10).catch(() => []),
+        ]);
+        // Warm the biggest company pages (topHolders + states) so first
+        // visits don't pay cold scans. Sequential + top-2 only to bound
+        // boot cost and pool contention.
+        try {
+          const top = await q
+            .listCompanies({ sort: "qty", dir: "desc", page: 1, pageSize: 2 })
+            .catch(() => null);
+          const dates = await q.snapshotDates().catch(() => []);
+          const d = dates[0];
+          if (top && d) {
+            for (const c of top.rows.slice(0, 2)) {
+              await Promise.all([
+                q.topHolders(c.isin, String(d), 25, 0, {}).catch(() => null),
+                q.distinctCompanyStates(c.isin, String(d)).catch(() => []),
+              ]);
+            }
+          }
+        } catch {
+          /* company warm is best-effort */
+        }
+      } catch {
+        /* cold path still works, just slower once */
+      }
+    })();
+  }
 }
 
 {
-  const g = globalThis as Record<string, unknown>;
   if (g.__benposPoolSweep !== true) {
     g.__benposPoolSweep = true;
     setInterval(() => {
@@ -110,7 +185,36 @@ function release(p: Pooled): void {
         const p = pool[i];
         if (p.inUse) continue;
         p.idleTicks += 1;
-        if (p.idleTicks >= POOL_IDLE_TICKS && pool.length > 0) {
+        p.keepaliveTicks += 1;
+        const protectedSlot = i < POOL_MIN;
+        if (protectedSlot) {
+          // Never evict the warm core. Periodic SELECT 1 keeps the DuckDB
+          // connection + parquet file handles hot and detects a dead
+          // instance early (replaced on next acquire).
+          if (p.keepaliveTicks >= KEEPALIVE_TICKS) {
+            p.keepaliveTicks = 0;
+            p.inUse = true;
+            p.con
+              .run("SELECT 1")
+              .catch(() => {
+                const idx = pool.indexOf(p);
+                if (idx >= 0) pool.splice(idx, 1);
+                destroyPooled(p);
+                // Replenish the warm core in the background.
+                acquire()
+                  .then((np) => release(np))
+                  .catch(() => {});
+              })
+              .finally(() => {
+                if (pool.includes(p)) {
+                  p.inUse = false;
+                  p.idleTicks = 0;
+                }
+              });
+          }
+          continue;
+        }
+        if (p.idleTicks >= POOL_IDLE_TICKS && pool.length > POOL_MIN) {
           pool.splice(i, 1);
           destroyPooled(p);
         }

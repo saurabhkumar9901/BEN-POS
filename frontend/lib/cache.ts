@@ -11,6 +11,7 @@ const TICK_MS = 1000;
 
 let generation = 0;
 let nowTick = 0;
+const inflight = new Map<string, Promise<unknown>>();
 {
   const g = globalThis as Record<string, unknown>;
   if (g.__benposCacheSweep !== true) {
@@ -29,6 +30,7 @@ let nowTick = 0;
 export function bustCache(): void {
   generation += 1;
   store.clear();
+  inflight.clear();
 }
 
 export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
@@ -40,11 +42,23 @@ export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>
     store.set(k, hit);
     return hit.value as T;
   }
-  const value = await fn();
-  if (store.size >= MAX_ENTRIES) {
-    const oldest = store.keys().next();
-    if (!oldest.done) store.delete(oldest.value);
-  }
-  store.set(k, { value, expiresTick: nowTick + Math.max(1, Math.ceil(ttlMs / TICK_MS)) });
-  return value;
+  // Single-flight: concurrent identical queries share one DB run instead of
+  // each acquiring a pool slot (homepage fires overviewTotals twice, etc).
+  const running = inflight.get(k);
+  if (running) return running as Promise<T>;
+  const p = (async () => {
+    try {
+      const value = await fn();
+      if (store.size >= MAX_ENTRIES) {
+        const oldest = store.keys().next();
+        if (!oldest.done) store.delete(oldest.value);
+      }
+      store.set(k, { value, expiresTick: nowTick + Math.max(1, Math.ceil(ttlMs / TICK_MS)) });
+      return value;
+    } finally {
+      inflight.delete(k);
+    }
+  })();
+  inflight.set(k, p);
+  return p;
 }
