@@ -1,0 +1,10 @@
+# Local rehearsal of the ACA deployment: same image, host dirs standing in
+# for the Azure Files share.
+services:
+  desk:
+    build: ..
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../data:/mnt/share/data
+      - ../processed:/mnt/share/processed

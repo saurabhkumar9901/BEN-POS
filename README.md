@@ -79,7 +79,12 @@ presence-flags and masked suffixes) plus `position_detail`
 full address, pledged/free/bucket split, source file + row). States normalized in `lib/geo.ts`
 (NSDL census codes + CDSL alias map → canonical / Outside India / Unknown).
 
-## Deploy (free tier)
+## Deploy
+
+- **Azure Container Apps (recommended, whole project)**: see `deploy/ACA.md` —
+  single image (`Dockerfile`), Azure Files at `/mnt/share`, one replica,
+  `deploy/compose.yml` rehearses it locally.
+- **Vercel + MotherDuck (UI only)**:
 
 `Vercel (UI + API)` → `MotherDuck (hosted DuckDB)` · ingest via
 `GitHub Actions` fed by `Supabase` staging. No PC, no schedule needed

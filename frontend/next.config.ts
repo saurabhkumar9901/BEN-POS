@@ -4,6 +4,8 @@ const nextConfig: NextConfig = {
   /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  // Slim deployable output for Docker (`node .next/standalone/server.js`).
+  output: "standalone",
   // DuckDB native bindings must stay external: Turbopack cannot bundle .node addons.
   serverExternalPackages: [
     "@duckdb/node-api",
