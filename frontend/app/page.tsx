@@ -99,8 +99,25 @@ async function AsOf() {
 
 async function Metrics() {
   const tot = await overviewTotals();
+  const empty = Number(tot.positions) === 0 && Number(tot.filesReconciled) === 0;
   return (
     <section>
+      {empty && (
+        <div className="mb-[18px] flex flex-wrap items-center justify-between gap-3 border-2 border-ink bg-orange p-4">
+          <div>
+            <strong className="block text-[18px] font-bold">No data ingested yet.</strong>
+            <span className="font-mono text-[11px]">
+              This store is empty — upload BENPOS drops and run the pipeline to populate it.
+            </span>
+          </div>
+          <Link
+            href="/ingestion"
+            className="border-2 border-ink bg-ink px-4 py-2 font-mono text-[11px] font-extrabold text-lime"
+          >
+            GO TO INGESTION →
+          </Link>
+        </div>
+      )}
       <div className="mb-[18px] flex items-end justify-between">
         <div className="flex items-start gap-[13px]">
           <span className="bg-ink px-[6px] py-[5px] font-mono text-[11px] font-extrabold text-white">

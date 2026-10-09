@@ -157,6 +157,15 @@ export async function query<T = Record<string, unknown>>(
         for (const [k, v] of Object.entries(r)) out[k] = toJsonSafe(v);
         return out;
       }) as T[];
+    } catch (err) {
+      // Fresh/empty store (nothing ingested yet): degrade to empty results
+      // so pages render their empty states instead of 500ing.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/no files found that match|does not exist|no such table|no such view/i.test(msg)) {
+        console.warn(`[desk] empty store, returning []: ${msg.split("\n")[0]}`);
+        return [] as T[];
+      }
+      throw err;
     } finally {
       release(p);
     }
