@@ -1,16 +1,39 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ShieldCheck } from "lucide-react";
+import { LogOut, ShieldCheck } from "lucide-react";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { SideNav } from "@/components/SideNav";
+import { logout } from "@/app/actions/auth";
+import { AUTH_COOKIE_NAME, verifySessionValue } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "BEN/POS Intelligence",
   description: "Shareholder data analytics, screening and ownership intelligence",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = await cookies();
+  const isAuthed = verifySessionValue(cookieStore.get(AUTH_COOKIE_NAME)?.value);
+
+  // Bare chrome for logged-out users (login page).
+  if (!isAuthed) {
+    return (
+      <html lang="en" className="h-full">
+        <body className="min-h-full bg-paper text-ink antialiased">
+          <div className="flex h-[6px]" aria-hidden>
+            <span className="flex-1 bg-lime" />
+            <span className="flex-1 bg-orange" />
+            <span className="flex-1 bg-blue" />
+            <span className="flex-1 bg-pink" />
+          </div>
+          <main className="mx-auto max-w-[1800px] px-4 pt-0 pb-9 md:px-8">{children}</main>
+        </body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-paper text-ink antialiased">
@@ -75,9 +98,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <span className="hidden font-mono text-[10px] font-bold tracking-[0.16em] text-muted md:block">
                   BENEFICIARY POSITION / COMMAND DESK
                 </span>
-                <span className="border border-ink bg-panel px-2 py-1 font-mono text-[9px] font-bold">
-                  WEEKLY BENPOS · NAMES VISIBLE · PII SUPPRESSED
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="hidden border border-ink bg-panel px-2 py-1 font-mono text-[9px] font-bold sm:block">
+                    WEEKLY BENPOS · NAMES VISIBLE · PII SUPPRESSED
+                  </span>
+                  <form action={logout}>
+                    <button
+                      type="submit"
+                      className="flex items-center gap-1.5 border-2 border-ink bg-orange px-2.5 py-1 font-mono text-[9px] font-extrabold tracking-[0.08em] transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[3px_3px_0_var(--color-ink)]"
+                    >
+                      <LogOut size={12} strokeWidth={2.5} />
+                      LOGOUT
+                    </button>
+                  </form>
+                </div>
               </div>
             </header>
             <main className="mx-auto max-w-[1800px] px-4 pt-0 pb-9 md:px-8">{children}</main>
